@@ -9,7 +9,7 @@ walk a dependency tree by clicking through blockers.
 ## Install
 
 ```sh
-herdr plugin install jbb/herdr-beads
+herdr plugin install hexsprite/herdr-beads
 ```
 
 Requires `bd` on `PATH`, plus `perl` and `jq` (both ship with macOS and most
