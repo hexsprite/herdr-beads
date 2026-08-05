@@ -1,0 +1,26 @@
+id = "beads.popover"
+name = "Beads Popover"
+version = "0.1.0"
+min_herdr_version = "0.7.4"
+description = "Ctrl-click a bead ID in any pane to open its details in a popup."
+platforms = ["linux", "macos"]
+
+[[actions]]
+id = "show-bead"
+title = "Show bead details"
+contexts = ["pane", "workspace"]
+command = ["bash", "scripts/show-bead.sh"]
+
+[[panes]]
+id = "detail"
+title = "Bead"
+placement = "popup"
+width = "70%"
+height = 24
+command = ["bash", "scripts/detail.sh"]
+
+[[link_handlers]]
+id = "bead"
+title = "Show bead details"
+pattern = "^https?://bead\\.invalid/([A-Za-z][A-Za-z0-9_]*-[A-Za-z0-9]+)/?$"
+action = "show-bead"
