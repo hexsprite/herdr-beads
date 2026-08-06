@@ -22,7 +22,7 @@ mkdir -p "$STATE_DIR" 2>/dev/null
 linkify() {
   perl -pe '
     s{(?<![\w/.-])([a-z][a-z0-9_]*(?:-[a-z][a-z0-9_]*)*-(?=[a-z0-9]{2,8}(?:\.[0-9]+)?(?![\w-]))[a-z0-9]*[0-9][a-z0-9]*(?:\.[0-9]+)?)(?![\w-])}
-     {\e]8;;https://bead.invalid/$1\e\\$1\e]8;;\e\\}gi
+     {\e]8;;https://bead.invalid/$1\e\\\e[4;38;5;75m$1\e[24;39m\e]8;;\e\\}gi
   '
 }
 
