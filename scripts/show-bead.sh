@@ -33,14 +33,30 @@ HISTORY="$STATE_DIR/history"
 mkdir -p "$STATE_DIR" 2>/dev/null
 
 # Is the detail pane from a previous click still on screen?
+#
+# The recorded pane id can go missing while the pane itself is very much alive —
+# a cleared TMPDIR is enough. Recovering it by label matters: without this the
+# handler concludes there is no pane and opens a second one next to the first.
 live_pane() {
-  local prev
-  [[ -r "$PANE_FILE" ]] && prev=$(<"$PANE_FILE") || return 1
-  [[ -n "$prev" ]] || return 1
   have_jq || return 1
-  "$HERDR" pane list 2>/dev/null \
-    | jq -e --arg p "$prev" '[.result.panes[]? | select(.pane_id==$p)] | length > 0' \
-      >/dev/null 2>&1
+
+  local prev=""
+  [[ -r "$PANE_FILE" ]] && prev=$(<"$PANE_FILE")
+  if [[ -n "$prev" ]] && "$HERDR" pane list 2>/dev/null \
+      | jq -e --arg p "$prev" '[.result.panes[]? | select(.pane_id==$p)] | length > 0' \
+        >/dev/null 2>&1; then
+    return 0
+  fi
+
+  # Adopt an existing detail pane in this workspace, if one is still open.
+  local found
+  found=$("$HERDR" pane list 2>/dev/null \
+    | jq -r --arg w "$workspace" \
+        '[.result.panes[]? | select(.label=="Bead") | select($w=="" or .workspace_id==$w)][0]
+         | (.pane_id // empty)' 2>/dev/null)
+  [[ -n "$found" ]] || return 1
+  printf '%s' "$found" >"$PANE_FILE" 2>/dev/null
+  return 0
 }
 
 # Selecting a bead means writing it to the state file. A live detail pane polls
