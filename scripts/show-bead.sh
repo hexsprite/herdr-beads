@@ -9,7 +9,7 @@ set -uo pipefail
 PLUGIN_ID="beads.popover"
 ROOT="${HERDR_PLUGIN_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 STATE_DIR="${TMPDIR:-/tmp}/beads-popover"
-GEN_FILE="$STATE_DIR/generation"
+PANE_FILE="$STATE_DIR/pane"
 HERDR="${HERDR_BIN_PATH:-herdr}"
 mkdir -p "$STATE_DIR" 2>/dev/null
 
@@ -21,35 +21,53 @@ ctx="${HERDR_PLUGIN_CONTEXT_JSON:-}"
 
 have_jq() { command -v jq >/dev/null 2>&1; }
 
-# Popups are session singletons and cannot be closed from here: they have no
-# pane ID, and `plugin pane close` requires one. A second open just fails with
-# "popup already open".
-#
-# So instead of closing the old popup, ask it to leave. Bumping the generation
-# counter makes any running popup exit on its next poll, freeing the slot. The
-# retry loop covers the gap between asking and it actually exiting.
-#
-# The alternative was overlay placement, which allows repeated opens — but
-# Herdr overlays are zoomed to the full tab, which is far too heavy for
-# glancing at one issue.
+# Split, not popup. Herdr does not route Ctrl-clicks that originate inside a
+# plugin popup, so links rendered in one are dead — which kills the whole point,
+# since walking a dependency tree means clicking IDs inside this pane. Ordinary
+# panes route clicks normally. (Overlay routes clicks too, but zooms the entire
+# tab, which is far too heavy for glancing at one issue.)
 open_pane() {
   local cwd="$1"; shift
-  local args=(plugin pane open --plugin "$PLUGIN_ID" --entrypoint detail --focus)
+  local args=(plugin pane open --plugin "$PLUGIN_ID" --entrypoint detail
+              --placement split --direction down --focus)
   [[ -n "$cwd" ]] && args+=(--cwd "$cwd")
+
+  # Without this the split lands in whichever workspace happens to hold UI
+  # focus, which is not necessarily where the click came from. --workspace is
+  # not accepted alongside it: a split always targets an existing pane, and the
+  # pane already determines its workspace.
+  local target
+  if [[ -n "$ctx" ]] && have_jq; then
+    target=$(jq -r '.focused_pane_id // empty' <<<"$ctx" 2>/dev/null)
+    [[ -n "$target" ]] && args+=(--target-pane "$target")
+  fi
+
   while (($#)); do args+=(--env "$1"); shift; done
 
-  local gen
-  gen=$(( $(cat "$GEN_FILE" 2>/dev/null || echo 0) + 1 ))
-  printf '%s' "$gen" >"$GEN_FILE" 2>/dev/null
-
-  local i out
-  for i in 1 2 3 4 5 6 7 8 9 10; do
-    out=$("$HERDR" "${args[@]}" 2>&1)
-    grep -q '"type":"ok"' <<<"$out" && exit 0
-    grep -q 'popup already open' <<<"$out" || break
-    sleep 0.15
-  done
+  close_previous
+  local out pane
+  out=$("$HERDR" "${args[@]}" 2>&1)
+  if have_jq; then
+    pane=$(printf '%s' "$out" \
+      | jq -r '.result.plugin_pane.pane.pane_id // empty' 2>/dev/null)
+    [[ -n "$pane" ]] && printf '%s' "$pane" >"$PANE_FILE" 2>/dev/null
+  fi
   exit 0
+}
+
+# Splits stack, so retire the previous one. Without this, clicking through a
+# dependency tree slices the tab into ever-thinner strips.
+close_previous() {
+  local prev
+  [[ -r "$PANE_FILE" ]] && prev=$(<"$PANE_FILE") || prev=""
+  if [[ -n "$prev" ]]; then
+    # `plugin pane close` only knows panes opened since the plugin was last
+    # linked, and reports plugin_pane_not_found for anything older. The generic
+    # close has no such memory, so it is the one that always works.
+    "$HERDR" plugin pane close "$prev" >/dev/null 2>&1
+    "$HERDR" pane close "$prev" >/dev/null 2>&1
+  fi
+  : >"$PANE_FILE" 2>/dev/null
 }
 
 die() { open_pane "" "BEAD_ERROR=$1"; }

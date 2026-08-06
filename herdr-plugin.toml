@@ -14,12 +14,10 @@ command = ["bash", "-c", "exec bash \"$HERDR_PLUGIN_ROOT/scripts/show-bead.sh\""
 [[panes]]
 id = "detail"
 title = "Bead"
-# Popup, not overlay: Herdr overlays are zoomed to the full tab, which is too
-# heavy for glancing at one issue. Popups are session singletons, so
-# show-bead.sh asks a running popup to exit before opening the next one.
-placement = "popup"
-width = "70%"
-height = 24
+# Split, not popup: Herdr does not route Ctrl-clicks originating inside a plugin
+# popup, so bead IDs rendered in one are dead links. Walking a dependency tree
+# means clicking IDs inside this pane, so it has to be an ordinary pane.
+placement = "split"
 # The path must be absolute. The action passes --cwd so bd can find its
 # database, which means a relative "scripts/detail.sh" resolves against the
 # clicked pane's directory instead and the pane dies immediately.

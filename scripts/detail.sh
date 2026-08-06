@@ -1,12 +1,8 @@
 #!/usr/bin/env bash
-# Popup pane body: render one bead plus its dependency tree, with every bead ID
-# in the output wrapped as an OSC 8 hyperlink so the popup is recursive —
-# Ctrl-click a blocker to jump straight to it.
+# Detail pane body: render one bead plus its dependency tree, with every bead ID
+# wrapped as an OSC 8 hyperlink so the pane is recursive — Ctrl-click a blocker
+# to jump straight to it.
 set -uo pipefail
-
-STATE_DIR="${TMPDIR:-/tmp}/beads-popover"
-GEN_FILE="$STATE_DIR/generation"
-mkdir -p "$STATE_DIR" 2>/dev/null
 
 # Wrap bare bead IDs in OSC 8 links pointing back at our own handler.
 #
@@ -54,11 +50,4 @@ render() {
 render
 printf '\n\033[2m— any key to close · Ctrl-click an ID to follow it —\033[0m'
 
-# Popups are session singletons: while this one lives, no other can open. So
-# watch the generation counter and step aside when a newer click arrives,
-# instead of making that click fail with "popup already open".
-mine=$(cat "$GEN_FILE" 2>/dev/null || echo 0)
-while :; do
-  read -rsn1 -t 0.2 && exit 0
-  [[ "$(cat "$GEN_FILE" 2>/dev/null || echo 0)" != "$mine" ]] && exit 0
-done
+read -rsn1

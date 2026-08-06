@@ -1,9 +1,9 @@
 # Beads Popover
 
 Ctrl-click a [beads](https://github.com/steveyegge/beads) issue ID in any Herdr
-pane and get its details in a popup, without leaving what you were doing.
+pane and get its details in a split below it, without leaving what you were doing.
 
-The popup is recursive: bead IDs inside it are themselves clickable, so you can
+The detail pane is recursive: bead IDs inside it are themselves clickable, so you can
 walk a dependency tree by clicking through blockers.
 
 ## Install
@@ -52,17 +52,20 @@ For something permanent, patch beads to emit
 [OSC 8](https://gist.github.com/egmontkob/eb114294efbcd5adb1944c9f3cb5feda)
 hyperlinks when stdout is a TTY.
 
-## How the popup gets replaced
+## Why a split and not a popup
 
-Popup panes are session singletons. A second `plugin pane open` while one is on
-screen fails with `popup already open`, and the error goes to the plugin log
-where nobody sees it — so click-through would appear to do nothing. Popups also
-have no pane ID, so there is nothing to close.
+Herdr does not route Ctrl-clicks that originate inside a plugin **popup**, so
+bead IDs rendered in one are dead links — which defeats the point, since
+walking a dependency tree means clicking IDs inside this pane. Ordinary panes
+route clicks normally, so the detail view is a `split`.
 
-Instead the handler bumps a generation counter and the running popup notices on
-its next poll and exits, freeing the slot. Herdr's other option, `overlay`,
-allows repeated opens but zooms to the entire tab, which is far too heavy for
-glancing at one issue.
+`overlay` also routes clicks, but zooms to the entire tab, which is too heavy
+for glancing at one issue.
+
+The split opens against the clicking pane (`--target-pane`) so it appears in
+the workspace you clicked from rather than whichever one holds UI focus, and
+the previous detail pane is closed first so clicking through a tree does not
+slice the tab into strips.
 
 ## Finding the right repository
 
