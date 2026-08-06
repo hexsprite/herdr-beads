@@ -63,9 +63,12 @@ route clicks normally, so the detail view is a `split`.
 for glancing at one issue.
 
 The split opens against the clicking pane (`--target-pane`) so it appears in
-the workspace you clicked from rather than whichever one holds UI focus, and
-the previous detail pane is closed first so clicking through a tree does not
-slice the tab into strips.
+the workspace you clicked from rather than whichever one holds UI focus.
+
+Only one detail pane ever exists. Selecting a bead writes it to a state file;
+a live detail pane polls that file and redraws itself. So clicking a link
+inside the detail pane replaces its own contents — it does not open a second
+pane, and it does not close the pane the click came from.
 
 ## Finding the right repository
 

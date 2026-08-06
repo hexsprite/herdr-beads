@@ -10,6 +10,7 @@ PLUGIN_ID="beads.popover"
 ROOT="${HERDR_PLUGIN_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 STATE_DIR="${TMPDIR:-/tmp}/beads-popover"
 PANE_FILE="$STATE_DIR/pane"
+CURRENT="$STATE_DIR/current"
 HERDR="${HERDR_BIN_PATH:-herdr}"
 mkdir -p "$STATE_DIR" 2>/dev/null
 
@@ -21,16 +22,36 @@ ctx="${HERDR_PLUGIN_CONTEXT_JSON:-}"
 
 have_jq() { command -v jq >/dev/null 2>&1; }
 
-# Split, not popup. Herdr does not route Ctrl-clicks that originate inside a
-# plugin popup, so links rendered in one are dead — which kills the whole point,
-# since walking a dependency tree means clicking IDs inside this pane. Ordinary
-# panes route clicks normally. (Overlay routes clicks too, but zooms the entire
-# tab, which is far too heavy for glancing at one issue.)
-open_pane() {
-  local cwd="$1"; shift
+# Is the detail pane from a previous click still on screen?
+live_pane() {
+  local prev
+  [[ -r "$PANE_FILE" ]] && prev=$(<"$PANE_FILE") || return 1
+  [[ -n "$prev" ]] || return 1
+  have_jq || return 1
+  "$HERDR" pane list 2>/dev/null \
+    | jq -e --arg p "$prev" '[.result.panes[]? | select(.pane_id==$p)] | length > 0' \
+      >/dev/null 2>&1
+}
+
+# Selecting a bead means writing it to the state file. A live detail pane polls
+# that file and redraws itself, so clicking a link inside the pane replaces its
+# contents instead of opening another pane — and never closes the pane the
+# click came from.
+select_bead() {
+  local id="$1" cwd="$2" err="${3:-}"
+  { printf '%s\n%s\n' "$id" "$cwd"; [[ -n "$err" ]] && printf '%s\n' "$err"; } \
+    >"$CURRENT" 2>/dev/null
+
+  live_pane && exit 0
+
+  # Split, not popup. Herdr does not route Ctrl-clicks that originate inside a
+  # plugin popup, so links rendered in one are dead — which kills the whole
+  # point. Ordinary panes route clicks normally. (Overlay routes clicks too,
+  # but zooms the entire tab, far too heavy for glancing at one issue.)
   local args=(plugin pane open --plugin "$PLUGIN_ID" --entrypoint detail
               --placement split --direction down --focus)
   [[ -n "$cwd" ]] && args+=(--cwd "$cwd")
+  [[ -n "$id" ]] && args+=(--env "BEAD_ID=$id" --env "BEAD_CWD=$cwd")
 
   # Without this the split lands in whichever workspace happens to hold UI
   # focus, which is not necessarily where the click came from. --workspace is
@@ -42,9 +63,6 @@ open_pane() {
     [[ -n "$target" ]] && args+=(--target-pane "$target")
   fi
 
-  while (($#)); do args+=(--env "$1"); shift; done
-
-  close_previous
   local out pane
   out=$("$HERDR" "${args[@]}" 2>&1)
   if have_jq; then
@@ -55,22 +73,7 @@ open_pane() {
   exit 0
 }
 
-# Splits stack, so retire the previous one. Without this, clicking through a
-# dependency tree slices the tab into ever-thinner strips.
-close_previous() {
-  local prev
-  [[ -r "$PANE_FILE" ]] && prev=$(<"$PANE_FILE") || prev=""
-  if [[ -n "$prev" ]]; then
-    # `plugin pane close` only knows panes opened since the plugin was last
-    # linked, and reports plugin_pane_not_found for anything older. The generic
-    # close has no such memory, so it is the one that always works.
-    "$HERDR" plugin pane close "$prev" >/dev/null 2>&1
-    "$HERDR" pane close "$prev" >/dev/null 2>&1
-  fi
-  : >"$PANE_FILE" 2>/dev/null
-}
-
-die() { open_pane "" "BEAD_ERROR=$1"; }
+die() { select_bead "" "" "$1"; }
 
 # Herdr sets this directly for link handlers (the mechanism official.browser
 # uses). The context JSON is a fallback for other invocation paths.
@@ -170,4 +173,4 @@ Searched every .beads repo under:
 Set BEADS_POPOVER_ROOTS if your repos live elsewhere."
 fi
 
-open_pane "$cwd" "BEAD_ID=$bead_id" "BEAD_CWD=$cwd"
+select_bead "$bead_id" "$cwd"
