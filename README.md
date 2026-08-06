@@ -1,9 +1,9 @@
 # Beads Popover
 
 Ctrl-click a [beads](https://github.com/steveyegge/beads) issue ID in any Herdr
-pane and get its details in a popup, without leaving what you were doing.
+pane and get its details in an overlay pane, without leaving what you were doing.
 
-The popup is recursive: bead IDs inside it are themselves clickable, so you can
+The overlay is recursive: bead IDs inside it are themselves clickable, so you can
 walk a dependency tree by clicking through blockers.
 
 ## Install
@@ -49,14 +49,31 @@ hyperlinks when stdout is a TTY.
 ## Working directory matters
 
 `bd` resolves its database from the working directory. The plugin launches the
-popup in the clicking pane's cwd, so an ID clicked from a pane inside its own
-repo resolves; the same ID clicked from an unrelated pane will not. The popup
-says so explicitly rather than failing silently.
+pane in the clicking pane's cwd, so an ID clicked from a pane inside its own
+repo resolves; the same ID clicked from an unrelated pane will not. The pane
+says which directory it used rather than failing silently.
+
+The cwd comes from Herdr's plugin context when it is present, and otherwise
+from the session's focused pane — clicking a link focuses its pane, so that is
+the click's origin.
+
+## Why overlay and not popup
+
+Popup panes are session singletons. A second `plugin pane open` while one is
+on screen fails with `popup already open`, and the error goes to the plugin log
+where nobody sees it — so every click after the first would appear to do
+nothing. Overlays are ordinary panes, so the handler closes the previous one
+and opens a fresh one. That is what makes clicking through a dependency tree
+work.
 
 ## Configuration
 
-Set `BEADS_POPOVER_DEBUG=1` to dump Herdr's context JSON to `last-context.json`
-in the plugin root — useful when Herdr changes context shape between versions.
+`BEADS_POPOVER_CWD` forces the working directory, bypassing detection. Useful
+for testing the handler outside a real click.
+
+Herdr's context payload is written to `last-context.json` in the plugin root on
+every invocation — it is undocumented and has changed shape between versions,
+so having the last one on disk is worth the single file.
 
 ## License
 

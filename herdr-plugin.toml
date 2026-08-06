@@ -2,22 +2,31 @@ id = "beads.popover"
 name = "Beads Popover"
 version = "0.1.0"
 min_herdr_version = "0.7.4"
-description = "Ctrl-click a bead ID in any pane to open its details in a popup."
+description = "Ctrl-click a bead ID in any pane to see its details without leaving the pane."
 platforms = ["linux", "macos"]
 
 [[actions]]
 id = "show-bead"
 title = "Show bead details"
 contexts = ["pane", "workspace"]
-command = ["bash", "scripts/show-bead.sh"]
+command = ["bash", "-c", "exec bash \"$HERDR_PLUGIN_ROOT/scripts/show-bead.sh\""]
 
 [[panes]]
 id = "detail"
 title = "Bead"
-placement = "popup"
-width = "70%"
-height = 24
-command = ["bash", "scripts/detail.sh"]
+# Overlay, not popup. Popups are session singletons: a second open fails with
+# "popup already open", so every click after the first would silently do
+# nothing. Overlays are replaceable panes, which is what makes clicking through
+# a dependency tree work.
+placement = "overlay"
+# The path must be absolute. The action passes --cwd so bd can find its
+# database, which means a relative "scripts/detail.sh" resolves against the
+# clicked pane's directory instead and the pane dies immediately.
+#
+# env has to come first: bash prints a setlocale warning at startup when it
+# inherits macOS's locale, before any command inside -c can fix it, and the
+# warning lands in the pane as noise.
+command = ["env", "LC_ALL=en_US.UTF-8", "bash", "-c", "exec bash \"$HERDR_PLUGIN_ROOT/scripts/detail.sh\""]
 
 [[link_handlers]]
 id = "bead"
