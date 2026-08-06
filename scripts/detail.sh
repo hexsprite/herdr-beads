@@ -95,11 +95,15 @@ wrapansi() {
 # The previous bead, rendered as a link at the top of the content. Clicking it
 # is just another bead click, so back navigation costs nothing beyond a line of
 # output — no less keybindings, no exit-status signalling.
+# Emitted already linked, rather than handed to linkify, so the whole phrase is
+# one click target instead of just the ID inside it.
 back_line() {
-  local prev
+  local prev id
   prev=$(sed -n '1p' "$HISTORY" 2>/dev/null)
   [[ -n "$prev" ]] || return
-  printf '\033[2m← back to\033[0m %s\n\n' "${prev%%$'\t'*}"
+  id="${prev%%$'\t'*}"
+  printf '\033]8;;https://bead.invalid/%s\033\\\033[4;38;5;75m← back to %s\033[24;39m\033]8;;\033\\\n\n' \
+    "$id" "$id"
 }
 
 render() {
@@ -124,7 +128,8 @@ render() {
     return
   fi
 
-  { back_line; printf '%s\n' "$out"; } | linkify
+  back_line
+  printf '%s\n' "$out" | linkify
   if tree=$( cd "${cwd:-$PWD}" && bd dep tree "$id" 2>/dev/null ) \
      && [[ -n "${tree//[[:space:]]/}" ]]; then
     hr
