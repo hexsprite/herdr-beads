@@ -34,13 +34,22 @@ prefixes() {
   printf '%s\n' "${p[@]}" | sort -u | grep -v '^$' | paste -sd'|' -
 }
 
+# Underline only, no colour of our own: bd colours its output and an SGR reset
+# here would drop that colour for the rest of the line. Underline marks the link
+# without touching what bd already set.
 linkify() {
   local alt; alt=$(prefixes)
   [[ -n "$alt" ]] || { cat; return; }
   BEADS_PREFIX_ALT="$alt" perl -pe '
     BEGIN { $alt = $ENV{BEADS_PREFIX_ALT} }
+    # Stash escape sequences first. bd colours its IDs, which puts the "m" that
+    # ends an SGR immediately before the ID — a word character, so the
+    # word-boundary lookbehind would refuse to match and nothing would linkify.
+    my @esc;
+    s/(\e\[[0-9;]*[A-Za-z]|\e\]8;;[^\e]*\e\\)/push @esc, $1; "\x00" . $#esc . "\x01"/ge;
     s{(?<![\w/.-])((?:$alt)(?:-[a-zA-Z0-9_.]+)+)(?![\w-])}
-     {\e]8;;https://bead.invalid/$1\e\\\e[4;38;5;75m$1\e[24;39m\e]8;;\e\\}gi;
+     {\e]8;;https://bead.invalid/$1\e\\\e[4m$1\e[24m\e]8;;\e\\}gi;
+    s/\x00(\d+)\x01/$esc[$1]/g;
   '
 }
 
@@ -122,7 +131,7 @@ render() {
 
   # bd writes "no beads database found" to stderr and exits non-zero when the
   # cwd is outside a beads repo — the single most likely failure, so name it.
-  if ! out=$(cd "${cwd:-$PWD}" 2>/dev/null && bd show "$id" 2>&1); then
+  if ! out=$(cd "${cwd:-$PWD}" 2>/dev/null && CLICOLOR_FORCE=1 bd show "$id" 2>&1); then
     printf '\033[1;31mCould not read %s\033[0m\n\n%s\n' "$id" "$out"
     printf '\n\033[2mcwd: %s\033[0m\n' "${cwd:-$PWD}"
     return
@@ -130,7 +139,7 @@ render() {
 
   back_line
   printf '%s\n' "$out" | linkify
-  if tree=$( cd "${cwd:-$PWD}" && bd dep tree "$id" 2>/dev/null ) \
+  if tree=$( cd "${cwd:-$PWD}" && CLICOLOR_FORCE=1 bd dep tree "$id" 2>/dev/null ) \
      && [[ -n "${tree//[[:space:]]/}" ]]; then
     hr
     printf '%s\n' "$tree" | linkify
@@ -178,7 +187,9 @@ while :; do
     done ) &
   watcher=$!
 
+  { echo "TERM=[${TERM:-unset}] size=$(stty size 2>&1) tmp=$TMP bytes=$(wc -c <"$TMP" 2>/dev/null)"; } >>"$STATE_DIR/debug.log" 2>&1
   LESSOPEN= less -R -L -Ps"$prompt" "$TMP"
+  echo "less exit=$? at $(date +%s)" >>"$STATE_DIR/debug.log" 2>&1
 
   kill "$watcher" 2>/dev/null
   wait "$watcher" 2>/dev/null
