@@ -8,7 +8,8 @@
 # contents instead of spawning another pane.
 set -uo pipefail
 
-STATE_DIR="${TMPDIR:-/tmp}/beads-popover"
+# Set by the link handler so each workspace's pane watches its own state.
+STATE_DIR="${BEADS_STATE_DIR:-${TMPDIR:-/tmp}/beads-popover/default}"
 CURRENT="$STATE_DIR/current"
 HISTORY="$STATE_DIR/history"
 mkdir -p "$STATE_DIR" 2>/dev/null

@@ -8,12 +8,8 @@ set -uo pipefail
 
 PLUGIN_ID="beads.popover"
 ROOT="${HERDR_PLUGIN_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
-STATE_DIR="${TMPDIR:-/tmp}/beads-popover"
-PANE_FILE="$STATE_DIR/pane"
-CURRENT="$STATE_DIR/current"
-HISTORY="$STATE_DIR/history"
+STATE_ROOT="${TMPDIR:-/tmp}/beads-popover"
 HERDR="${HERDR_BIN_PATH:-herdr}"
-mkdir -p "$STATE_DIR" 2>/dev/null
 
 ctx="${HERDR_PLUGIN_CONTEXT_JSON:-}"
 
@@ -22,6 +18,19 @@ ctx="${HERDR_PLUGIN_CONTEXT_JSON:-}"
 [[ -n "$ctx" ]] && printf '%s\n' "$ctx" >"$ROOT/last-context.json" 2>/dev/null
 
 have_jq() { command -v jq >/dev/null 2>&1; }
+
+# State is per workspace, so each workspace can keep its own visible detail pane
+# with its own back trail. A single global slot would mean the second workspace
+# hijacked the first one's pane.
+workspace=""
+if [[ -n "$ctx" ]] && have_jq; then
+  workspace=$(jq -r '.workspace_id // empty' <<<"$ctx" 2>/dev/null)
+fi
+STATE_DIR="$STATE_ROOT/${workspace:-default}"
+PANE_FILE="$STATE_DIR/pane"
+CURRENT="$STATE_DIR/current"
+HISTORY="$STATE_DIR/history"
+mkdir -p "$STATE_DIR" 2>/dev/null
 
 # Is the detail pane from a previous click still on screen?
 live_pane() {
@@ -41,10 +50,20 @@ live_pane() {
 select_bead() {
   local id="$1" cwd="$2" err="${3:-}"
 
+  # State lives in TMPDIR and outlives any single pane. Without this, the first
+  # click after the pane is gone offers "back" to whatever bead was last viewed
+  # hours ago, possibly in an unrelated repo.
+  local fresh=0
+  live_pane || fresh=1
+  if (( fresh )); then
+    : >"$HISTORY" 2>/dev/null
+    : >"$CURRENT" 2>/dev/null
+  fi
+
   # Keep a trail so the detail pane can offer a way back. Clicking the back link
   # selects the bead already on top of the trail, so that case pops instead of
   # pushing and the history does not grow every time you retrace a step.
-  if [[ -n "$id" ]]; then
+  if [[ -n "$id" ]] && (( ! fresh )); then
     local top prev_id prev_cwd
     top=$(sed -n '1p' "$HISTORY" 2>/dev/null)
     if [[ "${top%%$'\t'*}" == "$id" ]]; then
@@ -63,7 +82,7 @@ select_bead() {
   { printf '%s\n%s\n' "$id" "$cwd"; [[ -n "$err" ]] && printf '%s\n' "$err"; } \
     >"$CURRENT" 2>/dev/null
 
-  live_pane && exit 0
+  (( ! fresh )) && exit 0
 
   # Split, not popup. Herdr does not route Ctrl-clicks that originate inside a
   # plugin popup, so links rendered in one are dead — which kills the whole
@@ -73,6 +92,9 @@ select_bead() {
               --placement split --direction down --focus)
   [[ -n "$cwd" ]] && args+=(--cwd "$cwd")
   [[ -n "$id" ]] && args+=(--env "BEAD_ID=$id" --env "BEAD_CWD=$cwd")
+  # The pane reads its own state directory, so it follows the workspace it was
+  # opened in rather than a global one.
+  args+=(--env "BEADS_STATE_DIR=$STATE_DIR")
 
   # Without this the split lands in whichever workspace happens to hold UI
   # focus, which is not necessarily where the click came from. --workspace is

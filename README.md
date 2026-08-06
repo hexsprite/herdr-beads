@@ -73,10 +73,16 @@ the pane width, since `bd` wraps at a fixed 78 columns and ignores `COLUMNS`. `j
 keys scroll, space and `b` page, `g` returns to the top, and any other key
 closes the pane. The footer shows the position when there is more to see.
 
-Only one detail pane ever exists. Selecting a bead writes it to a state file;
-a live detail pane polls that file and redraws itself. So clicking a link
-inside the detail pane replaces its own contents — it does not open a second
-pane, and it does not close the pane the click came from.
+State is kept per workspace, so each workspace can have its own visible detail
+pane with its own back trail. Selecting a bead writes it to that workspace's
+state file; a live detail pane polls the file and redraws itself. So clicking a
+link inside the detail pane replaces its own contents rather than opening a
+second pane, and never closes the pane the click came from.
+
+The state lives in `TMPDIR` and outlives any single pane, so a click that finds
+no live pane starts a fresh trail. Otherwise the first click of a session would
+offer to go "back" to whatever bead was last viewed, possibly in an unrelated
+repo.
 
 ## Finding the right repository
 
