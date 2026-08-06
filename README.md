@@ -37,9 +37,12 @@ like `bead://` renders as inert text that nothing can follow — in a pager or i
 plain output alike. The manifest matches `bead://` as well, which costs nothing
 and starts working if Herdr ever supports custom schemes.
 
-The trade is that a plain click still reaches the browser: any target Herdr will
-route to a plugin is by definition one it is willing to open. `.invalid` keeps
-that harmless.
+A link the plugin claims does not leak: Herdr keeps the click rather than
+handing it to the browser. A link it does not claim is what escapes — which is
+why narrowing the pattern is dangerous. Anything already printed to a terminal
+is immutable, so an ID rendered under an older pattern stays on screen and
+starts opening a browser the moment the plugin stops matching it. Add schemes,
+never swap them.
 
 ## Making IDs clickable
 
