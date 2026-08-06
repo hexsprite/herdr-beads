@@ -31,6 +31,16 @@ https://bead.invalid/skills-0ud
 so it can never resolve. If the plugin is disabled or missing, the click fails
 closed rather than opening some stranger's website.
 
+The scheme has to be `http` or `https`. Herdr only turns http(s) OSC 8 targets
+into click targets and consults `link_handlers` afterwards, so a custom scheme
+like `bead://` renders as inert text that nothing can follow — in a pager or in
+plain output alike. The manifest matches `bead://` as well, which costs nothing
+and starts working if Herdr ever supports custom schemes.
+
+The trade is that a plain click still reaches the browser: any target Herdr will
+route to a plugin is by definition one it is willing to open. `.invalid` keeps
+that harmless.
+
 ## Making IDs clickable
 
 The plugin handles clicks; something still has to emit the links.

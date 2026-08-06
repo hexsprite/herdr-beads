@@ -22,6 +22,11 @@ mkdir -p "$STATE_DIR" 2>/dev/null
 # enough to catch all of them also catches ordinary hyphenated English.
 #
 # The lookbehind skips IDs already inside a URL so existing links survive intact.
+#
+# Targets must be http(s). Herdr only turns http/https OSC 8 targets into click
+# targets and consults link_handlers afterwards, so a bead:// link renders as
+# inert underlined text that nothing can follow. bead.invalid is reserved by
+# RFC 2606, so a click that misses the plugin cannot reach a real site.
 INDEX="${TMPDIR:-/tmp}/beads-popover-index.tsv"
 
 prefixes() {
@@ -48,7 +53,7 @@ linkify() {
     my @esc;
     s/(\e\[[0-9;]*[A-Za-z]|\e\]8;;[^\e]*\e\\)/push @esc, $1; "\x00" . $#esc . "\x01"/ge;
     s{(?<![\w/.-])((?:$alt)(?:-[a-zA-Z0-9_.]+)+)(?![\w-])}
-     {\e]8;;bead://$1\e\\\e[4m$1\e[24m\e]8;;\e\\}gi;
+     {\e]8;;https://bead.invalid/$1\e\\\e[4m$1\e[24m\e]8;;\e\\}gi;
     s/\x00(\d+)\x01/$esc[$1]/g;
   '
 }
@@ -111,7 +116,7 @@ back_line() {
   prev=$(sed -n '1p' "$HISTORY" 2>/dev/null)
   [[ -n "$prev" ]] || return
   id="${prev%%$'\t'*}"
-  printf '\033]8;;bead://%s\033\\\033[4;38;5;75m← back to %s\033[24;39m\033]8;;\033\\\n\n' \
+  printf '\033]8;;https://bead.invalid/%s\033\\\033[4;38;5;75m← back to %s\033[24;39m\033]8;;\033\\\n\n' \
     "$id" "$id"
 }
 
