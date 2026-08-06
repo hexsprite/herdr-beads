@@ -154,7 +154,7 @@ if [[ -z "$url" && -n "$ctx" ]] && have_jq; then
 fi
 [[ -n "$url" ]] || die "No clicked URL. Invoke this by Ctrl-clicking a bead link."
 
-# https://bead.invalid/skills-0ud  ->  skills-0ud
+# bead://skills-0ud  ->  skills-0ud
 bead_id="${url%/}"
 bead_id="${bead_id##*/}"
 [[ "$bead_id" =~ ^[A-Za-z][A-Za-z0-9_]*(-[A-Za-z0-9_]+)*-[A-Za-z0-9_.]+$ ]] \
