@@ -11,6 +11,7 @@ ROOT="${HERDR_PLUGIN_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 STATE_DIR="${TMPDIR:-/tmp}/beads-popover"
 PANE_FILE="$STATE_DIR/pane"
 CURRENT="$STATE_DIR/current"
+HISTORY="$STATE_DIR/history"
 HERDR="${HERDR_BIN_PATH:-herdr}"
 mkdir -p "$STATE_DIR" 2>/dev/null
 
@@ -39,6 +40,26 @@ live_pane() {
 # click came from.
 select_bead() {
   local id="$1" cwd="$2" err="${3:-}"
+
+  # Keep a trail so the detail pane can offer a way back. Clicking the back link
+  # selects the bead already on top of the trail, so that case pops instead of
+  # pushing and the history does not grow every time you retrace a step.
+  if [[ -n "$id" ]]; then
+    local top prev_id prev_cwd
+    top=$(sed -n '1p' "$HISTORY" 2>/dev/null)
+    if [[ "${top%%$'\t'*}" == "$id" ]]; then
+      sed -i '' '1d' "$HISTORY" 2>/dev/null
+    else
+      prev_id=$(sed -n '1p' "$CURRENT" 2>/dev/null)
+      prev_cwd=$(sed -n '2p' "$CURRENT" 2>/dev/null)
+      if [[ -n "$prev_id" && "$prev_id" != "$id" ]]; then
+        printf '%s\t%s\n%s' "$prev_id" "$prev_cwd" "$(cat "$HISTORY" 2>/dev/null)" \
+          >"$HISTORY.new" 2>/dev/null
+        mv "$HISTORY.new" "$HISTORY" 2>/dev/null
+      fi
+    fi
+  fi
+
   { printf '%s\n%s\n' "$id" "$cwd"; [[ -n "$err" ]] && printf '%s\n' "$err"; } \
     >"$CURRENT" 2>/dev/null
 
@@ -65,6 +86,18 @@ select_bead() {
 
   local out pane
   out=$("$HERDR" "${args[@]}" 2>&1)
+
+  # A stale target pane fails the whole open and nothing appears on screen.
+  # Better to land in the focused workspace than to do nothing at all.
+  if [[ -n "$target" ]] && grep -q 'pane_not_found' <<<"$out"; then
+    local retry=()
+    for a in "${args[@]}"; do
+      [[ "$a" == "--target-pane" || "$a" == "$target" ]] && continue
+      retry+=("$a")
+    done
+    out=$("$HERDR" "${retry[@]}" 2>&1)
+  fi
+
   if have_jq; then
     pane=$(printf '%s' "$out" \
       | jq -r '.result.plugin_pane.pane.pane_id // empty' 2>/dev/null)

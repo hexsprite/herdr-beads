@@ -10,6 +10,7 @@ set -uo pipefail
 
 STATE_DIR="${TMPDIR:-/tmp}/beads-popover"
 CURRENT="$STATE_DIR/current"
+HISTORY="$STATE_DIR/history"
 mkdir -p "$STATE_DIR" 2>/dev/null
 
 # Wrap bare bead IDs in OSC 8 links pointing back at our own handler.
@@ -72,6 +73,16 @@ wrapansi() {
 # State file layout: line 1 is the bead ID, line 2 its repo, anything after is
 # an error message. Keeping the error out of band avoids quoting a multi-line
 # message through the same line-oriented format.
+# The previous bead, rendered as a link at the top of the content. Clicking it
+# is just another bead click, so back navigation costs nothing beyond a line of
+# output — no less keybindings, no exit-status signalling.
+back_line() {
+  local prev
+  prev=$(sed -n '1p' "$HISTORY" 2>/dev/null)
+  [[ -n "$prev" ]] || return
+  printf '\033[2m← back to\033[0m %s\n\n' "${prev%%$'\t'*}"
+}
+
 render() {
   local id="$1" cwd="$2" err="$3" out tree
 
@@ -94,7 +105,7 @@ render() {
     return
   fi
 
-  printf '%s\n' "$out" | linkify
+  { back_line; printf '%s\n' "$out"; } | linkify
   if tree=$( cd "${cwd:-$PWD}" && bd dep tree "$id" 2>/dev/null ) \
      && [[ -n "${tree//[[:space:]]/}" ]]; then
     hr
@@ -102,52 +113,14 @@ render() {
   fi
 }
 
-# Rendered lines for the current bead, and where the viewport starts in them.
-lines=()
-offset=0
-
-load() {
-  local id cwd err
-  id=$(sed -n '1p' "$CURRENT" 2>/dev/null)
-  cwd=$(sed -n '2p' "$CURRENT" 2>/dev/null)
-  err=$(sed -n '3,$p' "$CURRENT" 2>/dev/null)
-
-  lines=()
-  local w; w=$(term_cols)
-  while IFS= read -r l; do lines+=("$l"); done \
-    < <(render "$id" "$cwd" "$err" | wrapansi "$w")
-  offset=0
-}
-
-# Print a window of the rendered lines rather than dumping everything. A long
-# bead would otherwise scroll its own title off the top of the pane, which is
-# the one line you always want to see.
-draw() {
-  local rows body i last_line
-  rows=$(term_rows)
-  body=$(( rows - 1 ))
-  (( body < 1 )) && body=1
-
-  local max=$(( ${#lines[@]} - body ))
-  (( max < 0 )) && max=0
-  (( offset > max )) && offset=$max
-  (( offset < 0 )) && offset=0
-
-  printf '\033[H\033[2J'
-  last_line=$(( offset + body ))
-  for (( i = offset; i < last_line && i < ${#lines[@]}; i++ )); do
-    printf '%s\n' "${lines[i]}"
-  done
-
-  printf '\033[%d;1H\033[2m' "$rows"
-  if (( ${#lines[@]} > body )); then
-    printf -- '— j/k scroll · %d-%d of %d · any other key closes —' \
-      $(( offset + 1 )) "$(( last_line < ${#lines[@]} ? last_line : ${#lines[@]} ))" "${#lines[@]}"
-  else
-    printf -- '— any key to close · Ctrl-click an ID to follow it —'
-  fi
-  printf '\033[0m'
-}
+# Page with less rather than a hand-rolled viewport: it already handles resize,
+# search, and position, and less 668 passes OSC 8 hyperlinks through intact so
+# bead IDs stay clickable inside the pager.
+#
+# -X keeps less off the alternate screen, so the rendered bead stays in the
+# pane's normal buffer where Herdr's link handling already works.
+TMP="$STATE_DIR/render.$$"
+trap 'rm -f "$TMP"' EXIT
 
 # Seed from the environment on first launch so the pane has content before the
 # state file is consulted.
@@ -155,39 +128,37 @@ if [[ ! -s "$CURRENT" && -n "${BEAD_ID:-}" ]]; then
   printf '%s\n%s\n' "$BEAD_ID" "${BEAD_CWD:-$PWD}" >"$CURRENT"
 fi
 
-# Turn off autowrap so one rendered line always occupies exactly one row.
-# Otherwise a line wider than the pane costs two rows, the viewport arithmetic
-# under-counts, and the bead's title scrolls off the top — the one line that
-# always has to stay visible.
-printf '\033[?7l'
-trap 'printf "\033[?7h"' EXIT
-
-last=""
 while :; do
-  now=$(cat "$CURRENT" 2>/dev/null)
-  if [[ "$now" != "$last" ]]; then
-    last="$now"
-    load
-    draw
-  fi
+  snapshot=$(cat "$CURRENT" 2>/dev/null)
+  id=$(sed -n '1p' "$CURRENT" 2>/dev/null)
+  cwd=$(sed -n '2p' "$CURRENT" 2>/dev/null)
+  err=$(sed -n '3,$p' "$CURRENT" 2>/dev/null)
 
-  if read -rsn1 -t 0.2 key; then
-    case "$key" in
-      j) (( offset++ )); draw ;;
-      k) (( offset-- )); draw ;;
-      ' ') (( offset += 10 )); draw ;;
-      b) (( offset -= 10 )); draw ;;
-      g) offset=0; draw ;;
-      $'\e')
-        # Arrow keys arrive as ESC [ A/B. Bare Escape closes.
-        read -rsn2 -t 0.05 seq || exit 0
-        case "$seq" in
-          '[A') (( offset-- )); draw ;;
-          '[B') (( offset++ )); draw ;;
-          *) exit 0 ;;
-        esac
-        ;;
-      *) exit 0 ;;
-    esac
-  fi
+  render "$id" "$cwd" "$err" | wrapansi "$(term_cols)" >"$TMP"
+
+  # Replace less's default filename prompt, which would show a temp path, with
+  # the bead being viewed and the keys that matter. %lt-%lb of %L is the visible
+  # line range; less fills it in as you scroll.
+  prompt="${id:-beads} · ctrl-click an ID to follow · j/k scroll · / search · q close"
+
+  # Watch for a new selection while the pager is up, and retire the pager when
+  # one arrives so the same pane redraws with the new bead.
+  ( while :; do
+      sleep 0.2
+      [[ "$(cat "$CURRENT" 2>/dev/null)" != "$snapshot" ]] || continue
+      pkill -P $$ -x less 2>/dev/null
+      break
+    done ) &
+  watcher=$!
+
+  # -X leaves the screen alone, so without this the next render appends below
+  # the previous one and pushes the bead's title out of view.
+  printf '\033[H\033[2J'
+  less -RX -Ps"$prompt" "$TMP"
+
+  kill "$watcher" 2>/dev/null
+  wait "$watcher" 2>/dev/null
+
+  # less exited on its own (the user quit) rather than being replaced.
+  [[ "$(cat "$CURRENT" 2>/dev/null)" == "$snapshot" ]] && exit 0
 done
