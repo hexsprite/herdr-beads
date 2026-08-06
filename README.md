@@ -6,6 +6,8 @@ pane and get its details in a split below it, without leaving what you were doin
 The detail pane is recursive: bead IDs inside it are themselves clickable, so you can
 walk a dependency tree by clicking through blockers.
 
+![Ctrl-clicking a bead ID opens its details in a split below](docs/screenshot.png)
+
 ## Install
 
 ```sh
