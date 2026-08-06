@@ -32,5 +32,5 @@ command = ["env", "LC_ALL=en_US.UTF-8", "bash", "-c", "exec bash \"$HERDR_PLUGIN
 [[link_handlers]]
 id = "bead"
 title = "Show bead details"
-pattern = "^https?://bead\\.invalid/([A-Za-z][A-Za-z0-9_]*-[A-Za-z0-9]+)/?$"
+pattern = "^https?://bead\\.invalid/([A-Za-z][A-Za-z0-9_]*(-[A-Za-z0-9_]+)*-[A-Za-z0-9_.]+)/?$"
 action = "show-bead"

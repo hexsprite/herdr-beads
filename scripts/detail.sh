@@ -15,7 +15,7 @@ mkdir -p "$STATE_DIR" 2>/dev/null
 # lookbehind skips IDs already inside a URL so existing links survive intact.
 linkify() {
   perl -pe '
-    s{(?<![\w/.-])([a-z][a-z0-9_]*-(?=[a-z0-9]{2,8}(?![\w-]))[a-z]*[0-9][a-z0-9]*)(?![\w-])}
+    s{(?<![\w/.-])([a-z][a-z0-9_]*(?:-[a-z][a-z0-9_]*)*-(?=[a-z0-9]{2,8}(?:\.[0-9]+)?(?![\w-]))[a-z0-9]*[0-9][a-z0-9]*(?:\.[0-9]+)?)(?![\w-])}
      {\e]8;;https://bead.invalid/$1\e\\$1\e]8;;\e\\}gi
   '
 }

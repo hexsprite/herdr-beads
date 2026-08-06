@@ -65,17 +65,18 @@ fi
 # https://bead.invalid/skills-0ud  ->  skills-0ud
 bead_id="${url%/}"
 bead_id="${bead_id##*/}"
-[[ "$bead_id" =~ ^[A-Za-z][A-Za-z0-9_]*-[A-Za-z0-9]+$ ]] \
+[[ "$bead_id" =~ ^[A-Za-z][A-Za-z0-9_]*(-[A-Za-z0-9_]+)*-[A-Za-z0-9_.]+$ ]] \
   || die "Not a bead ID: $bead_id"
 
 # The pane the click came from. Often the right repo, but not when an agent
 # mentions a bead from a pane that is parked somewhere else.
 pane_cwd() {
   local c=""
+  # Herdr 0.8 sends a flat payload: focused_pane_cwd, workspace_cwd, clicked_url,
+  # link_handler_id. The nested forms are kept in case older builds differ.
   if [[ -n "$ctx" ]] && have_jq; then
-    c=$(jq -r '.pane.cwd // .pane.foreground_cwd // .focused_pane.cwd
-               // .focusedPane.cwd // .worktree.path // .workspace.path // empty' \
-        <<<"$ctx" 2>/dev/null)
+    c=$(jq -r '.focused_pane_cwd // .workspace_cwd
+               // .pane.cwd // .focused_pane.cwd // empty' <<<"$ctx" 2>/dev/null)
     [[ -n "$c" && "$c" != "null" ]] && { printf '%s' "$c"; return; }
   fi
   # Exactly one pane is focused session-wide, and clicking a link focuses its
