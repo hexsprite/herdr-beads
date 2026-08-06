@@ -16,13 +16,31 @@ mkdir -p "$STATE_DIR" 2>/dev/null
 
 # Wrap bare bead IDs in OSC 8 links pointing back at our own handler.
 #
-# The suffix must contain a digit and stay short, otherwise ordinary hyphenated
-# English ("self-contained", "well-known") gets linkified into nonsense. The
-# lookbehind skips IDs already inside a URL so existing links survive intact.
+# Matching is driven by the prefixes of the beads repos actually on this machine
+# rather than by the shape of the suffix. Shape heuristics do not work: real IDs
+# are anything from fo-g1kd6 to fo-komud to ralph-tui-348.4, and any rule loose
+# enough to catch all of them also catches ordinary hyphenated English.
+#
+# The lookbehind skips IDs already inside a URL so existing links survive intact.
+INDEX="${TMPDIR:-/tmp}/beads-popover-index.tsv"
+
+prefixes() {
+  local p=()
+  [[ -r "$INDEX" ]] && while IFS=$'\t' read -r pre _; do
+    [[ -n "$pre" ]] && p+=("$pre")
+  done <"$INDEX"
+  # The bead on screen may come from a repo the index has not seen yet.
+  [[ -n "${BEAD_ID:-}" ]] && p+=("${BEAD_ID%%-*}")
+  printf '%s\n' "${p[@]}" | sort -u | grep -v '^$' | paste -sd'|' -
+}
+
 linkify() {
-  perl -pe '
-    s{(?<![\w/.-])([a-z][a-z0-9_]*(?:-[a-z][a-z0-9_]*)*-(?=[a-z0-9]{2,8}(?:\.[0-9]+)?(?![\w-]))[a-z0-9]*[0-9][a-z0-9]*(?:\.[0-9]+)?)(?![\w-])}
-     {\e]8;;https://bead.invalid/$1\e\\\e[4;38;5;75m$1\e[24;39m\e]8;;\e\\}gi
+  local alt; alt=$(prefixes)
+  [[ -n "$alt" ]] || { cat; return; }
+  BEADS_PREFIX_ALT="$alt" perl -pe '
+    BEGIN { $alt = $ENV{BEADS_PREFIX_ALT} }
+    s{(?<![\w/.-])((?:$alt)(?:-[a-zA-Z0-9_.]+)+)(?![\w-])}
+     {\e]8;;https://bead.invalid/$1\e\\\e[4;38;5;75m$1\e[24;39m\e]8;;\e\\}gi;
   '
 }
 
