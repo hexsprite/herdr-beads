@@ -68,7 +68,8 @@ The split opens against the clicking pane (`--target-pane`) so it appears in
 the workspace you clicked from rather than whichever one holds UI focus.
 
 The pane renders a viewport rather than dumping everything, so the bead's title
-stays on the first row no matter how long the issue is. `j`/`k` or the arrow
+stays on the first row no matter how long the issue is. Text is re-wrapped to
+the pane width, since `bd` wraps at a fixed 78 columns and ignores `COLUMNS`. `j`/`k` or the arrow
 keys scroll, space and `b` page, `g` returns to the top, and any other key
 closes the pane. The footer shows the position when there is more to see.
 

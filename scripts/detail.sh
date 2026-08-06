@@ -31,6 +31,44 @@ term_rows() { local s; s=$(stty size 2>/dev/null) && printf '%s' "${s%% *}" || p
 term_cols() { local s; s=$(stty size 2>/dev/null) && printf '%s' "${s##* }" || printf 80; }
 hr() { printf '\033[2m%*s\033[0m\n' "$(term_cols)" '' | tr ' ' '─'; }
 
+# Re-wrap to the pane width. bd wraps its own output at a fixed 78 columns and
+# ignores COLUMNS, so anything narrower than that overflows. Escape sequences
+# have no width, so a naive fold counts them as visible characters, wraps far
+# too early, and can slice a sequence in half.
+#
+# Breaks on spaces only, so bead IDs stay intact and clickable, and continuation
+# lines keep the original indent to preserve the dependency tree's shape.
+wrapansi() {
+  perl -CSD -e '
+    my $w = shift(@ARGV) || 80;
+    $w = 20 if $w < 20;
+    while (my $line = <STDIN>) {
+      chomp $line;
+      my ($indent) = $line =~ /^(\s*)/;
+      $indent = "" if length($indent) > $w - 10;
+      my ($out, $col, $first) = ("", 0, 1);
+      for my $tok (split /(\s+)/, $line) {
+        next if $tok eq "";
+        my $vis = $tok;
+        $vis =~ s/\e\]8;;[^\e]*\e\\//g;
+        $vis =~ s/\e\[[0-9;]*[A-Za-z]//g;
+        my $len = length($vis);
+        if ($tok =~ /^\s+$/) {
+          if ($col + $len <= $w) { $out .= $tok; $col += $len }
+          next;
+        }
+        if ($col + $len > $w && !$first) {
+          $out =~ s/[ \t]+$//;
+          $out .= "\n" . $indent;
+          $col = length($indent);
+        }
+        $out .= $tok; $col += $len; $first = 0;
+      }
+      print $out, "\n";
+    }
+  ' "$1"
+}
+
 # State file layout: line 1 is the bead ID, line 2 its repo, anything after is
 # an error message. Keeping the error out of band avoids quoting a multi-line
 # message through the same line-oriented format.
@@ -75,7 +113,9 @@ load() {
   err=$(sed -n '3,$p' "$CURRENT" 2>/dev/null)
 
   lines=()
-  while IFS= read -r l; do lines+=("$l"); done < <(render "$id" "$cwd" "$err")
+  local w; w=$(term_cols)
+  while IFS= read -r l; do lines+=("$l"); done \
+    < <(render "$id" "$cwd" "$err" | wrapansi "$w")
   offset=0
 }
 
