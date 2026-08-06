@@ -8,8 +8,10 @@ set -uo pipefail
 
 PLUGIN_ID="beads.popover"
 ROOT="${HERDR_PLUGIN_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
-STATE="${TMPDIR:-/tmp}/beads-popover.pane"
+STATE_DIR="${TMPDIR:-/tmp}/beads-popover"
+GEN_FILE="$STATE_DIR/generation"
 HERDR="${HERDR_BIN_PATH:-herdr}"
+mkdir -p "$STATE_DIR" 2>/dev/null
 
 ctx="${HERDR_PLUGIN_CONTEXT_JSON:-}"
 
@@ -19,40 +21,34 @@ ctx="${HERDR_PLUGIN_CONTEXT_JSON:-}"
 
 have_jq() { command -v jq >/dev/null 2>&1; }
 
-# Overlay panes stack, so retire the previous one before opening another.
-# Without this, clicking through a dependency tree buries the screen in panes.
-close_previous() {
-  local prev
-  [[ -r "$STATE" ]] && prev=$(<"$STATE") || prev=""
-  if [[ -n "$prev" ]]; then
-    # `plugin pane close` only knows panes opened since the plugin was last
-    # linked, and reports plugin_pane_not_found for anything older. The generic
-    # close has no such memory, so it is the one that actually always works.
-    "$HERDR" plugin pane close "$prev" >/dev/null 2>&1
-    "$HERDR" pane close "$prev" >/dev/null 2>&1
-  fi
-  : >"$STATE" 2>/dev/null
-}
-
-# Placement is deliberately "overlay", not "popup". Popups are session
-# singletons: a second open fails outright with "popup already open", so every
-# click after the first would silently do nothing. Overlays are real panes that
-# can be replaced, which is what makes click-through work.
+# Popups are session singletons and cannot be closed from here: they have no
+# pane ID, and `plugin pane close` requires one. A second open just fails with
+# "popup already open".
+#
+# So instead of closing the old popup, ask it to leave. Bumping the generation
+# counter makes any running popup exit on its next poll, freeing the slot. The
+# retry loop covers the gap between asking and it actually exiting.
+#
+# The alternative was overlay placement, which allows repeated opens — but
+# Herdr overlays are zoomed to the full tab, which is far too heavy for
+# glancing at one issue.
 open_pane() {
   local cwd="$1"; shift
-  local args=(plugin pane open --plugin "$PLUGIN_ID" --entrypoint detail
-              --placement overlay --focus)
+  local args=(plugin pane open --plugin "$PLUGIN_ID" --entrypoint detail --focus)
   [[ -n "$cwd" ]] && args+=(--cwd "$cwd")
   while (($#)); do args+=(--env "$1"); shift; done
 
-  close_previous
-  local out pane
-  out=$("$HERDR" "${args[@]}" 2>&1)
-  if have_jq; then
-    pane=$(printf '%s' "$out" \
-      | jq -r '.result.plugin_pane.pane.pane_id // empty' 2>/dev/null)
-    [[ -n "$pane" ]] && printf '%s' "$pane" >"$STATE" 2>/dev/null
-  fi
+  local gen
+  gen=$(( $(cat "$GEN_FILE" 2>/dev/null || echo 0) + 1 ))
+  printf '%s' "$gen" >"$GEN_FILE" 2>/dev/null
+
+  local i out
+  for i in 1 2 3 4 5 6 7 8 9 10; do
+    out=$("$HERDR" "${args[@]}" 2>&1)
+    grep -q '"type":"ok"' <<<"$out" && exit 0
+    grep -q 'popup already open' <<<"$out" || break
+    sleep 0.15
+  done
   exit 0
 }
 
@@ -72,32 +68,87 @@ bead_id="${bead_id##*/}"
 [[ "$bead_id" =~ ^[A-Za-z][A-Za-z0-9_]*-[A-Za-z0-9]+$ ]] \
   || die "Not a bead ID: $bead_id"
 
-# bd resolves its database from the working directory, so the pane must start
-# where the click happened. Without this it inherits the plugin root and every
-# lookup fails with "no beads database found".
-resolve_cwd() {
+# The pane the click came from. Often the right repo, but not when an agent
+# mentions a bead from a pane that is parked somewhere else.
+pane_cwd() {
   local c=""
-
-  [[ -n "${BEADS_POPOVER_CWD:-}" ]] && { printf '%s' "$BEADS_POPOVER_CWD"; return; }
-
   if [[ -n "$ctx" ]] && have_jq; then
     c=$(jq -r '.pane.cwd // .pane.foreground_cwd // .focused_pane.cwd
                // .focusedPane.cwd // .worktree.path // .workspace.path // empty' \
         <<<"$ctx" 2>/dev/null)
     [[ -n "$c" && "$c" != "null" ]] && { printf '%s' "$c"; return; }
   fi
-
-  # Fall back to asking the session. Exactly one pane is focused session-wide,
-  # and clicking a link focuses its pane, so that is the click's origin.
+  # Exactly one pane is focused session-wide, and clicking a link focuses its
+  # pane, so that is the click's origin.
   if have_jq; then
     c=$("$HERDR" pane list 2>/dev/null \
         | jq -r '[.result.panes[]? | select(.focused)][0]
                  | (.foreground_cwd // .cwd // empty)' 2>/dev/null)
     [[ -n "$c" && "$c" != "null" ]] && { printf '%s' "$c"; return; }
   fi
+  printf ''
+}
 
+# Map bead prefixes to repositories, so an ID resolves no matter which pane it
+# was clicked from. Reading the first line of issues.jsonl is far cheaper than
+# starting bd in every candidate repo.
+ROOTS="${BEADS_POPOVER_ROOTS:-$HOME/co:$HOME/src:$HOME/code:$HOME/projects}"
+INDEX="${TMPDIR:-/tmp}/beads-popover-index.tsv"
+
+build_index() {
+  local root repo id
+  : >"$INDEX"
+  IFS=':' read -ra roots <<<"$ROOTS"
+  for root in "${roots[@]}"; do
+    [[ -d "$root" ]] || continue
+    for f in "$root"/*/.beads/issues.jsonl; do
+      [[ -r "$f" ]] || continue
+      repo=$(dirname "$(dirname "$f")")
+      id=$(head -1 "$f" 2>/dev/null | sed -n 's/.*"id"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
+      [[ -n "$id" ]] && printf '%s\t%s\n' "${id%%-*}" "$repo" >>"$INDEX"
+    done
+  done
+}
+
+# Candidate repos for this ID: the clicking pane first (cheapest and usually
+# right), then every repo whose prefix matches.
+candidates() {
+  local prefix="${bead_id%%-*}" pc
+  pc=$(pane_cwd)
+  [[ -n "$pc" ]] && printf '%s\n' "$pc"
+
+  [[ -r "$INDEX" ]] || build_index
+  local hits
+  hits=$(awk -F'\t' -v p="$prefix" '$1==p {print $2}' "$INDEX" 2>/dev/null)
+  # A prefix added since the index was built looks like a miss; rebuild once.
+  if [[ -z "$hits" ]]; then
+    build_index
+    hits=$(awk -F'\t' -v p="$prefix" '$1==p {print $2}' "$INDEX" 2>/dev/null)
+  fi
+  printf '%s\n' "$hits"
+}
+
+resolve_cwd() {
+  [[ -n "${BEADS_POPOVER_CWD:-}" ]] && { printf '%s' "$BEADS_POPOVER_CWD"; return; }
+  local c
+  while read -r c; do
+    [[ -n "$c" && -d "$c" ]] || continue
+    if (cd "$c" && bd show "$bead_id" >/dev/null 2>&1); then
+      printf '%s' "$c"; return
+    fi
+  done < <(candidates)
   printf ''
 }
 
 cwd=$(resolve_cwd)
+if [[ -z "$cwd" ]]; then
+  die "No repo contains $bead_id.
+
+Searched every .beads repo under:
+  ${ROOTS//:/
+  }
+
+Set BEADS_POPOVER_ROOTS if your repos live elsewhere."
+fi
+
 open_pane "$cwd" "BEAD_ID=$bead_id" "BEAD_CWD=$cwd"
