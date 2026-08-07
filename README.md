@@ -118,6 +118,29 @@ Herdr's context payload is written to `last-context.json` in the plugin root on
 every invocation — it is undocumented and has changed shape between versions,
 so having the last one on disk is worth the single file.
 
+## Tests
+
+Most of this plugin is glue — `herdr` calls, `jq`, state files, `less` — and it
+either works or fails loudly. The exceptions are the two perl programs in
+`scripts/lib/render.sh`:
+
+- `linkify` wraps bare bead IDs in OSC 8 hyperlinks without disturbing the
+  escape sequences `bd` already emitted.
+- `wrapansi` re-wraps to the pane width while ignoring escape sequences, which
+  occupy bytes but no columns.
+
+Both have regressed silently before, and both fail invisibly: an ID quietly
+stops responding to Ctrl-click, or a line wraps at the wrong column. So they get
+tests and nothing else does.
+
+```
+brew install bats-core
+bats tests/render.bats
+```
+
+`BEADS_POPOVER_INDEX` overrides the prefix index path, which is how the tests
+supply a fixture instead of whatever repos happen to be on the machine.
+
 ## License
 
 MIT
