@@ -192,9 +192,7 @@ while :; do
     done ) &
   watcher=$!
 
-  { echo "TERM=[${TERM:-unset}] size=$(stty size 2>&1) tmp=$TMP bytes=$(wc -c <"$TMP" 2>/dev/null)"; } >>"$STATE_DIR/debug.log" 2>&1
   LESSOPEN= less -R -L -Ps"$prompt" "$TMP"
-  echo "less exit=$? at $(date +%s)" >>"$STATE_DIR/debug.log" 2>&1
 
   kill "$watcher" 2>/dev/null
   wait "$watcher" 2>/dev/null
