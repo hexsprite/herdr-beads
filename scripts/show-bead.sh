@@ -186,7 +186,7 @@ pane_cwd() {
 # was clicked from. Reading the first line of issues.jsonl is far cheaper than
 # starting bd in every candidate repo.
 ROOTS="${BEADS_POPOVER_ROOTS:-$HOME/co:$HOME/src:$HOME/code:$HOME/projects}"
-INDEX="${TMPDIR:-/tmp}/beads-popover-index.tsv"
+INDEX="${BEADS_POPOVER_INDEX:-${TMPDIR:-/tmp}/beads-popover-index.tsv}"
 
 build_index() {
   local root repo id
