@@ -96,6 +96,20 @@ link() {
   [ "$output" = "fo-g1kd6" ]
 }
 
+@test "linkify: an empty prefix list does not trip set -u on bash 3.2" {
+  # bash before 4.4 treats "${arr[@]}" on an empty array as unbound, which under
+  # detail.sh's set -u kills the pane outright. macOS still ships 3.2 as
+  # /bin/bash, so anyone without a newer bash on PATH hits this on the first
+  # render after a cleared TMPDIR. bats itself runs under a modern bash, so this
+  # has to spawn the old one explicitly.
+  [ -x /bin/bash ] || skip "no /bin/bash"
+  : >"$BEADS_POPOVER_INDEX"
+  run /bin/bash -c \
+    "set -uo pipefail; source '$ROOT/scripts/lib/render.sh'; printf 'fo-g1kd6\n' | linkify"
+  [ "$status" -eq 0 ]
+  [ "$output" = "fo-g1kd6" ]
+}
+
 @test "linkify: uses BEAD_ID's prefix when the index has not seen it" {
   : >"$BEADS_POPOVER_INDEX"
   export BEAD_ID=new-xyz

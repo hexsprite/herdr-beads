@@ -17,6 +17,9 @@ prefixes() {
   done <"$INDEX"
   # The bead on screen may come from a repo the index has not seen yet.
   [[ -n "${BEAD_ID:-}" ]] && p+=("${BEAD_ID%%-*}")
+  # ${p[@]} on an empty array trips set -u, and an empty alternation would
+  # match everywhere.
+  (( ${#p[@]} )) || return 0
   printf '%s\n' "${p[@]}" | sort -u | grep -v '^$' | paste -sd'|' -
 }
 
